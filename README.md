@@ -7,8 +7,10 @@
 
 ## Screenshots
 ### build successfully 
-![tests passed](https://raw.githubusercontent.com/Arstman/imgstorage/main/pic/erc20-build.png)
+![build successfully](https://raw.githubusercontent.com/Arstman/imgstorage/main/pic/erc20-build.png)
 
+### tests all passed
+![tests passed](https://raw.githubusercontent.com/Arstman/imgstorage/main/pic/erc20-test.png)
 
 ### code upload
 ![upload bundle](https://raw.githubusercontent.com/Arstman/imgstorage/main/pic/erc20-code-upload.png)

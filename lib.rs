@@ -140,10 +140,8 @@ mod erc20 {
             Ok(())
         }
     }
-
-    /// Unit tests in Rust are normally defined within such a `#[cfg(test)]`
-    /// module and test functions are marked with a `#[test]` attribute.
-    /// The below code is technically just normal Rust code.
+    //测试模块, 重点参考https://paritytech.github.io/ink/ink_env/test/index.html 文档
+    //和https://paritytech.github.io/ink-docs/basics/contract-testing
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -214,7 +212,7 @@ mod erc20 {
             } else {
                 panic!("encountered unexpected evnet kind: expect a Transfer event")
             }
-            let expected_topic = vec![
+            let expected_topics = vec![
                 encoded_into_hash(&PrefixedValue {
                     value: b"Erc20::Transfer",
                     prefix: b"",
@@ -232,6 +230,220 @@ mod erc20 {
                     value: &expected_value,
                 }),
             ];
+
+            for (n, (actual_topic, expect_topic)) in
+                event.topics.iter().zip(expected_topics).enumerate()
+            {
+                let topic = actual_topic
+                    .decode::<Hash>()
+                    .expect("encountered invalid topic encoding");
+                assert_eq!(topic, expect_topic, "encountered invalid topic at {}", n);
+            }
+        }
+        #[ink::test]
+        fn new_works() {
+            let _erc20 = Erc20::new(100);
+
+            let emit_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+
+            assert_eq!(1, emit_events.len());
+
+            assert_transfer_event(
+                &emit_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+        }
+
+        #[ink::test]
+        fn total_supply_works() {
+            let erc20 = Erc20::new(100);
+
+            let emit_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_transfer_event(
+                &emit_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+
+            assert_eq!(erc20.total_supply(), 100);
+        }
+
+        #[ink::test]
+        fn balance_of_works() {
+            let erc20 = Erc20::new(100);
+
+            let emit_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_transfer_event(
+                &emit_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.balance_of(accounts.alice), 100);
+            assert_eq!(erc20.balance_of(accounts.bob), 0);
+        }
+
+        #[ink::test]
+        fn transfer_works() {
+            // 此处小坑, 一定要定义为mut
+            let mut erc20 = Erc20::new(100);
+
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.balance_of(accounts.alice), 100);
+            assert_eq!(erc20.balance_of(accounts.bob), 0);
+
+            //transfer 10 to bob
+            assert_eq!(erc20.transfer(accounts.bob, 10), Ok(()));
+
+            assert_eq!(erc20.balance_of(accounts.alice), 90);
+            assert_eq!(erc20.balance_of(accounts.bob), 10);
+
+            let emit_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_eq!(emit_events.len(), 2);
+            assert_transfer_event(
+                &emit_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+            assert_transfer_event(
+                &emit_events[1],
+                Some(AccountId::from([0x01; 32])),
+                Some(AccountId::from([0x02; 32])),
+                10,
+            );
+        }
+
+        #[ink::test]
+        fn trasfer_fails_when_not_enough_balance() {
+            let mut erc20 = Erc20::new(100);
+
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.balance_of(accounts.bob), 0);
+
+            let callee = ink_env::account_id::<ink_env::DefaultEnvironment>();
+
+            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); // 表示4th 的call方法, 即transfer
+
+            data.push_arg(&accounts.bob);
+
+            ink_env::test::push_execution_context::<ink_env::DefaultEnvironment>(
+                accounts.bob,
+                callee,
+                1000000,
+                1000000,
+                data,
+            );
+
+            assert_eq!(
+                erc20.transfer(accounts.eve, 10),
+                Err(Error::InsufficientBalance)
+            );
+
+            assert_eq!(erc20.balance_of(accounts.alice), 100);
+            assert_eq!(erc20.balance_of(accounts.bob), 0);
+            assert_eq!(erc20.balance_of(accounts.eve), 0);
+
+            let emit_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_eq!(emit_events.len(), 1);
+            assert_transfer_event(
+                &emit_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+        }
+
+        #[ink::test]
+        fn transfer_from_works() {
+            let mut erc20 = Erc20::new(100);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(
+                erc20.transfer_from(accounts.alice, accounts.eve, 10),
+                Err(Error::InsufficientAllowance)
+            );
+            assert_eq!(erc20.approve(accounts.bob, 10), Ok(()));
+
+            assert_eq!(ink_env::test::recorded_events().count(), 2);
+
+            let callee = ink_env::account_id::<ink_env::DefaultEnvironment>();
+            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); // balance_of
+            data.push_arg(&accounts.bob);
+            ink_env::test::push_execution_context::<ink_env::DefaultEnvironment>(
+                accounts.bob,
+                callee,
+                1000000,
+                1000000,
+                data,
+            );
+
+            assert_eq!(
+                erc20.transfer_from(accounts.alice, accounts.eve, 10),
+                Ok(())
+            );
+            assert_eq!(erc20.balance_of(accounts.eve), 10);
+
+            let emitted_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_eq!(emitted_events.len(), 3);
+            assert_transfer_event(
+                &emitted_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+            assert_transfer_event(
+                &emitted_events[2],
+                Some(AccountId::from([0x01; 32])),
+                Some(AccountId::from([0x05; 32])),
+                10,
+            );
+        }
+
+        #[ink::test]
+        fn allowance_must_not_change_on_failed_transfer() {
+            let mut erc20 = Erc20::new(100);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            let alice_balance = erc20.balance_of(accounts.alice);
+            let initial_allowance = alice_balance + 2;
+            assert_eq!(erc20.approve(accounts.bob, initial_allowance), Ok(()));
+
+            let callee = ink_env::account_id::<ink_env::DefaultEnvironment>();
+            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); // balance_of
+            data.push_arg(&accounts.bob);
+            ink_env::test::push_execution_context::<ink_env::DefaultEnvironment>(
+                accounts.bob,
+                callee,
+                1000000,
+                1000000,
+                data,
+            );
+
+            let emitted_events_before = ink_env::test::recorded_events();
+            assert_eq!(
+                erc20.transfer_from(accounts.alice, accounts.eve, alice_balance + 1),
+                Err(Error::InsufficientBalance)
+            );
+            assert_eq!(
+                erc20.allowance(accounts.alice, accounts.bob),
+                initial_allowance
+            );
+            let emitted_events_after = ink_env::test::recorded_events();
+            assert_eq!(emitted_events_before.count(), emitted_events_after.count());
         }
     }
 }
