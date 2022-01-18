@@ -380,7 +380,7 @@ mod erc20 {
             assert_eq!(ink_env::test::recorded_events().count(), 2);
 
             let callee = ink_env::account_id::<ink_env::DefaultEnvironment>();
-            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); // balance_of
+            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); 
             data.push_arg(&accounts.bob);
             ink_env::test::push_execution_context::<ink_env::DefaultEnvironment>(
                 accounts.bob,
@@ -423,7 +423,7 @@ mod erc20 {
             assert_eq!(erc20.approve(accounts.bob, initial_allowance), Ok(()));
 
             let callee = ink_env::account_id::<ink_env::DefaultEnvironment>();
-            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); // balance_of
+            let mut data = ink_env::test::CallData::new(ink_env::call::Selector::new([0x00; 4])); 
             data.push_arg(&accounts.bob);
             ink_env::test::push_execution_context::<ink_env::DefaultEnvironment>(
                 accounts.bob,
